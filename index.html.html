@@ -1,0 +1,565 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>가상 뉴스 시각화 재배치 시스템 - 지구 화면</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            background-color: #000;
+            font-family: 'Malgun Gothic', sans-serif;
+            color: #fff;
+        }
+
+        /* 1. 상단 컨트롤 바 (화면 전환 및 필터) */
+        #control-panel {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            z-index: 100;
+            background: rgba(15, 15, 25, 0.85);
+            padding: 15px 20px;
+            border-radius: 12px;
+            box-shadow: 0 0 15px rgba(0, 255, 255, 0.2);
+            border: 1px solid rgba(0, 255, 255, 0.3);
+            backdrop-filter: blur(5px);
+        }
+
+        .panel-section {
+            margin-bottom: 15px;
+        }
+        .panel-section:last-child { margin-bottom: 0; }
+
+        .panel-title {
+            font-size: 14px;
+            font-weight: bold;
+            margin-bottom: 8px;
+            color: #00ffff;
+        }
+
+        .btn-toggle {
+            background: #111;
+            color: #fff;
+            border: 1px solid #555;
+            padding: 6px 12px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 12px;
+            transition: all 0.3s;
+        }
+        .btn-toggle:hover {
+            background: #00ffff;
+            color: #000;
+            box-shadow: 0 0 10px #00ffff;
+        }
+
+        .filter-label {
+            display: inline-flex;
+            align-items: center;
+            margin-right: 12px;
+            font-size: 13px;
+            cursor: pointer;
+        }
+        .filter-label input {
+            margin-right: 5px;
+        }
+
+        /* 경제뉴스 전용 그린 스포트라이트 체크박스 스타일 가이드용 */
+        .chk-economy + span { color: #2ecc71; }
+        .chk-politics + span { color: #3498db; }
+        .chk-science + span { color: #9b59b6; }
+
+        /* 2. 확대/축소 슬라이더 바 */
+        #zoom-container {
+            position: absolute;
+            right: 30px;
+            top: 50%;
+            transform: translateY(-50%);
+            z-index: 100;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            background: rgba(15, 15, 25, 0.7);
+            padding: 15px 8px;
+            border-radius: 20px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        #zoom-slider {
+            -webkit-appearance: slider-vertical;
+            width: 8px;
+            height: 150px;
+            background: #333;
+            outline: none;
+            cursor: pointer;
+        }
+
+        /* 3. 마우스 호버 시 나타나는 가로형 카드 뉴스 UI */
+        #hover-card {
+            position: absolute;
+            z-index: 200;
+            display: none;
+            pointer-events: none; /* 마우스 이벤트를 방해하지 않음 */
+            background: rgba(20, 20, 30, 0.95);
+            border-radius: 8px;
+            padding: 10px;
+            width: 280px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+            border: 1px solid #fff;
+            transition: opacity 0.2s;
+        }
+        .card-flex {
+            display: flex;
+            gap: 10px;
+        }
+        .card-img {
+            width: 80px;
+            height: 60px;
+            background: #333;
+            border-radius: 4px;
+            object-fit: cover;
+        }
+        .card-info {
+            flex: 1;
+        }
+        .card-tag {
+            font-size: 10px;
+            font-weight: bold;
+            padding: 2px 5px;
+            border-radius: 3px;
+            display: inline-block;
+            margin-bottom: 4px;
+        }
+        .card-title {
+            font-size: 12px;
+            font-weight: bold;
+            line-height: 1.3;
+            color: #fff;
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+        }
+
+        /* 4. 기사 상세 팝업 화면 (모달) */
+        #detail-modal {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 80%;
+            max-width: 1000px;
+            height: 75vh;
+            background: #121218;
+            border-radius: 16px;
+            z-index: 300;
+            display: none;
+            border: 1px solid rgba(255,255,255,0.15);
+            box-shadow: 0 10px 40px rgba(0,0,0,0.8);
+            overflow: hidden;
+        }
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 15px 25px;
+            background: #1a1a24;
+            border-bottom: 1px solid rgba(255,255,255,0.08);
+        }
+        .modal-close {
+            background: none;
+            border: none;
+            color: #888;
+            font-size: 24px;
+            cursor: pointer;
+            transition: color 0.2s;
+        }
+        .modal-close:hover { color: #fff; }
+        
+        .modal-body {
+            display: flex;
+            height: calc(100% - 60px);
+        }
+        /* 좌측 절반: 기사 본문 */
+        .modal-left {
+            flex: 1;
+            padding: 25px;
+            overflow-y: auto;
+            border-right: 1px solid rgba(255,255,255,0.08);
+        }
+        /* 우측 절반: 연관 리스트 스크롤 */
+        .modal-right {
+            width: 45%;
+            padding: 25px;
+            overflow-y: auto;
+            background: #161622;
+        }
+
+        .news-content { line-height: 1.6; color: #ccc; font-size: 14px; }
+        .wiki-section {
+            margin-top: 30px;
+            padding-top: 20px;
+            border-top: 1px dashed rgba(255,255,255,0.2);
+        }
+        /* 나무위키 스타일 공식 기관 링크 */
+        .wiki-link {
+            color: #58a6ff;
+            text-decoration: underline;
+            cursor: pointer;
+        }
+        .rel-card {
+            background: rgba(255,255,255,0.04);
+            padding: 12px;
+            border-radius: 8px;
+            margin-bottom: 12px;
+            font-size: 13px;
+        }
+
+        /* 하단 안내 문구 */
+        #info-text {
+            position: absolute;
+            bottom: 15px;
+            width: 100%;
+            text-align: center;
+            font-size: 12px;
+            color: #666;
+            pointer-events: none;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="control-panel">
+        <div class="panel-section">
+            <div class="panel-title">화면 전환</div>
+            <button class="btn-toggle" onclick="alert('우주 부분 개발 대기 중입니다!')">우주 화면으로 이동</button>
+        </div>
+        <div class="panel-section">
+            <div class="panel-title">기사 필터링 (한겨레 1시간 주기 반영)</div>
+            <label class="filter-label"><input type="checkbox" class="chk-politics" checked> <span>정치</span></label>
+            <label class="filter-label"><input type="checkbox" class="chk-economy" checked> <span>경제</span></label>
+            <label class="filter-label"><input type="checkbox" class="chk-science" checked> <span>미래과학</span></label>
+        </div>
+    </div>
+
+    <div id="zoom-container">
+        <span style="font-size: 10px; margin-bottom: 5px; color:#aaa;">+</span>
+        <input type="range" id="zoom-slider" min="3" max="8" step="0.1" value="5">
+        <span style="font-size: 10px; margin-top: 5px; color:#aaa;">-</span>
+    </div>
+
+    <div id="hover-card">
+        <div class="card-flex">
+            <img class="card-img" id="card-img" src="" alt="기사 이미지">
+            <div class="card-info">
+                <span class="card-tag" id="card-tag">태그</span>
+                <div class="card-title" id="card-title">기사 제목이 표시되는 영역입니다.</div>
+            </div>
+        </div>
+    </div>
+
+    <div id="detail-modal">
+        <div class="modal-header">
+            <h3 id="modal-main-title" style="margin:0; font-size:18px;">뉴스 상세 보기</h3>
+            <button class="modal-close" onclick="closeModal()">×</button>
+        </div>
+        <div class="modal-body">
+            <div class="modal-left">
+                <h2 id="modal-article-title" style="margin-top:0; font-size:22px; color:#fff;"></h2>
+                <div class="news-content" id="modal-article-body"></div>
+                
+                <div class="wiki-section">
+                    <h4 style="margin:0 0 10px 0; color:#00ffff;">🏛️ 지식 확장 (공신력 있는 기관 연동)</h4>
+                    <p style="font-size:13px; color:#aaa; margin:0 0 10px 0;">기사 내부 개념 증명을 위해 검증된 공공 기고 기관 정보로 연결됩니다.</p>
+                    <div id="modal-wiki-content" class="news-content"></div>
+                </div>
+            </div>
+            <div class="modal-right">
+                <h4 style="margin-top:0; color:#fff; border-bottom:1px solid #333; padding-bottom:10px;">📍 같은 위치 / 유사한 뉴스</h4>
+                <div id="modal-related-list"></div>
+            </div>
+        </div>
+    </div>
+
+    <div id="canvas-container"></div>
+    <div id="info-text">마우스 드래그로 회전 가능 (남/북극 고정) | 마우스를 핀에 가까이 대면 카드뉴스가 활성화됩니다.</div>
+
+    <script>
+        // --- 1. 기초 가상 뉴스 데이터 구성 (한겨레 기반 가공 시뮬레이션) ---
+        const newsData = [
+            {
+                id: 1, title: "여의도 정치개혁 특별위원회 출범... 선거법 개정 논의 착수", 
+                type: "politics", shape: "circle", color: 0x3498db, read: false,
+                lat: 37.5326, lon: 126.9245, // 서울 여의도 (국회 기관 주소지 타협안 적용)
+                body: "여의도 국회의사당에서 정치개혁 특별위원회가 정식 출범하여 본격적인 선거제도 개편안을 심사하기 시작했습니다. 이번 개정안은 표의 등가성을 강화하는 방안을 골자로 합니다...",
+                wiki: "관련 공공 지식: <span class='wiki-link' onclick='loadWiki(\"대한민국 국회\")'>대한민국 국회(assembly.go.kr)</span> 문서에 따르면, 특위는 특정 한시적 사안을 다루기 위해 본회의 결의로 설치되는 위원회입니다.",
+                related: ["법제사법위원회 소식", "선거법 개정에 따른 정당별 손익 계산 기사"]
+            },
+            {
+                id: 2, title: "한국은행, 기준금리 0.25%p 전격 인하 결정... 경기 부양 목적", 
+                type: "economy", shape: "circle", color: 0x2ecc71, read: false, // 경제뉴스 그린 계열 적용
+                lat: 37.5612, lon: 126.9822, // 서울 남대문 (한국은행 본진 위치)
+                body: "금융통화위원회가 오늘 정각 회의를 열고 기준금리를 기존 대비 0.25%포인트 인하 조치했습니다. 물가 안정세와 더불어 침체된 국내 내수 경기를 활성화하겠다는 강력한 신호입니다.",
+                wiki: "공식 지식: <span class='wiki-link' onclick='loadWiki(\"한국은행 금통위\")'>한국은행 금융통화위원회(bok.or.kr)</span> 자료실에 의하면, 통화신용정책에 관한 권한은 금통위 고유 권한입니다.",
+                related: ["시중은행 주택담보대출 금리 추이", "금리 인하가 코스피 시장에 미치는 영향 분석"]
+            },
+            {
+                id: 3, title: "KAIST 신소재공학과 연구팀, 상온 초전도 유력 물질 세계 최초 발견", 
+                type: "science", shape: "box", color: 0x9b59b6, read: false, // 미래과학 네모 형태 적용
+                lat: 36.3721, lon: 127.3604, // 대전 KAIST (연구소/대학교 위치 기준 적용)
+                body: "KAIST 연구팀이 마침내 상온 및 상압 환경에서 저항이 완벽히 zero가 되는 기적의 신소재 합성에 성공했습니다. 이번 연구 결과는 전력 손실 없는 송전을 가능케 할 인류의 대발견입니다.",
+                wiki: "공식 지식: <span class='wiki-link' onclick='loadWiki(\"과학기술정보통신부\")'>과학기술정보통신부(msit.go.kr)</span> 연구 보고서에 따르면 본 원천 기술은 국가전략기술 개발 과제 지원을 통해 달성되었습니다.",
+                related: ["초전도체 상용화 시 예상되는 전력 혁명", "MIT 연구진의 또 다른 미래 나노소재 인용 기사"]
+            },
+            {
+                id: 4, title: "WMO 전 세계 기후 임계점 도달 경고... 평균 기온 1.5도 첫 돌파", 
+                type: "global", shape: "satellite", color: 0xffffff, read: false, // 글로벌 뉴스 대기권 위성(1안) 적용
+                lat: 80, lon: 0, // 북극 상공 부근 궤도 타협
+                body: "세계기상기구(WMO) 보고서에 따르면 지구 표면 평균 온도가 파리 기후 협정 마지노선이었던 1.5도를 넘어섰습니다. 초국가적인 즉각적 탄소 배출 규제가 요구되는 시점입니다.",
+                wiki: "공식 지식: <span class='wiki-link' onclick='loadWiki(\"UN기후변화협약\")'>UNFCCC(unfccc.int)</span> 정부간 협의체 공인 통계에 의하면 해수면 상승 속도가 지난 10년 대비 2배 빨라졌습니다.",
+                related: ["글로벌 탄소 배출권 거래제 변화 동향", "남극 빙하 유실 실시간 위성 모니터링 현황"]
+            }
+        ];
+
+        // --- 2. Three.js 3D 지구 및 환경 구성 (자전, 음영, 태양빛 콘셉트) ---
+        let scene, camera, renderer, earth, controls;
+        let pinObjects = [];
+        let raycaster = new Raycaster();
+        let mouse = new THREE.Vector2();
+        let hoveredPin = null;
+
+        function init3D() {
+            const container = document.getElementById('canvas-container');
+            
+            // 씬 구축
+            scene = new THREE.Scene();
+
+            // 카메라 설정
+            camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.z = 15;
+
+            // 랜더러 설정
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            container.appendChild(renderer.domElement);
+
+            // 지구본 메쉬 생성 (현실적인 낮과 밤 음영을 위한 Lambert 재질)
+            const earthGeometry = new THREE.SphereGeometry(4, 64, 64);
+            const earthMaterial = new THREE.MeshLambertMaterial({
+                color: 0x224488,
+                wireframe: false,
+                emissive: 0x050510 // 어두운 면도 약간 푸르게 보이도록 은은한 야간 도시 광 표현 유도
+            });
+            earth = new THREE.Mesh(earthGeometry, earthMaterial);
+            scene.add(earth);
+
+            // 가상의 현실적 태양빛 배치 (한쪽면은 밝고 반대편은 어두운 음영 유도)
+            const sunLight = new THREE.DirectionalLight(0xffffff, 1.2);
+            sunLight.position.set(10, 3, 5); // 태양의 위치 각도 고정식 시뮬레이션
+            scene.add(sunLight);
+
+            // 우주 배경의 부드러운 주변광
+            const ambientLight = new THREE.AmbientLight(0x222222);
+            scene.add(ambientLight);
+
+            // 남북극 축 고정 회전을 위한 OrbitControls 세팅
+            controls = new THREE.OrbitControls(camera, renderer.domElement);
+            controls.enablePan = false; // 카메라 이동 제한
+            controls.minDistance = 6;   // 도시 레벨 최대 확대 한계치
+            controls.maxDistance = 20;  // 최대 축소 제한
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.05;
+
+            // 슬라이더 바와 카메라 거리 동기화 인터랙션
+            document.getElementById('zoom-slider').addEventListener('input', (e) => {
+                camera.position.z = e.target.value * 2.5; 
+            });
+
+            // 핀 데이터 로드 및 지구 배치
+            createPins();
+
+            // 이벤트 리스너 등록
+            window.addEventListener('resize', onWindowResize);
+            window.addEventListener('mousemove', onMouseMove);
+            window.addEventListener('click', onPointClick);
+
+            animate();
+        }
+
+        // 위도 경도를 3D 데카르트 좌표로 바꾸는 변환식 함수
+        function latLonToVector3(lat, lon, radius) {
+            const phi = (90 - lat) * (Math.PI / 180);
+            const theta = (lon + 180) * (Math.PI / 180);
+
+            const x = -(radius * Math.sin(phi) * Math.sin(theta));
+            const y = radius * Math.cos(phi);
+            const z = radius * Math.sin(phi) * Math.cos(theta);
+
+            return new THREE.Vector3(x, y, z);
+        }
+
+        // 핀 오브젝트들을 지구 위에 생성하는 함수
+        function createPins() {
+            newsData.forEach(news => {
+                let geom;
+                let radiusAttr = 4.05; // 일반 지구 표면 살짝 위 높이
+
+                if(news.type === 'global') {
+                    radiusAttr = 5.2; // 대기권 위성(1안)을 위해 반경을 더 확장하여 공중에 띄움
+                }
+
+                // 형태 분기 조건문 (원형 vs 네모)
+                if (news.shape === 'box') {
+                    geom = new THREE.BoxGeometry(0.15, 0.15, 0.15); // 과학 연구/기관용 네모
+                } else if(news.shape === 'satellite') {
+                    geom = new THREE.ConeGeometry(0.12, 0.2, 4); // 글로벌 위성용 원뿔/다면체 모양
+                } else {
+                    geom = new THREE.SphereGeometry(0.1, 16, 16); // 일반 정치 경제용 원형
+                }
+
+                // 기본 재질 구성
+                const mat = new THREE.MeshBasicMaterial({ color: news.color });
+                const mesh = new THREE.Mesh(geom, mat);
+
+                // 좌표 배치 계산
+                const pos = latLonToVector3(news.lat, news.lon, radiusAttr);
+                mesh.position.copy(pos);
+                
+                // 핀이 지구본 회전을 따라가도록 지구의 자식 노드로 추가
+                earth.add(mesh);
+
+                // 마우스 매칭 연결용 커스텀 데이터 이식
+                mesh.userData = { newsId: news.id, baseColor: news.color };
+                pinObjects.push(mesh);
+            });
+        }
+
+        // 애니메이션 루프 (천천히 서에서 동으로 자동 자전 기능 포함)
+        function animate() {
+            requestAnimationFrame(animate);
+
+            // 사용자가 마우스 드래그 컨트롤 중이 아닐 때만 천천히 자전 작동
+            if(!controls.state == -1 || controls.state === -1) {
+                earth.rotation.y += 0.001; // 자전 속도 조정
+            }
+
+            // 정각 업데이트 파동 효과 느낌 시뮬레이션을 위해 핀 크기를 시간에 따라 미세하게 펄싱 유도
+            const time = Date.now() * 0.003;
+            pinObjects.forEach(pin => {
+                if(pin !== hoveredPin) {
+                    const scaleFactor = 1 + Math.sin(time) * 0.1;
+                    pin.scale.set(scaleFactor, scaleFactor, scaleFactor);
+                }
+            });
+
+            controls.update();
+            renderer.render(scene, camera);
+        }
+
+        // --- 3. 인터랙션 처리 (호버 카드 뉴스 구현, 흰색 빛 반응 및 모달 제어) ---
+        function onMouseMove(event) {
+            // 표준 마우스 좌표 변환
+            mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+            mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+
+            raycaster.setFromCamera(mouse, camera);
+            const intersects = raycaster.intersectObjects(pinObjects);
+
+            const card = document.getElementById('hover-card');
+
+            if (intersects.length > 0) {
+                const targetPin = intersects[0].object;
+                
+                if (hoveredPin !== targetPin) {
+                    // 이전 핀 복원
+                    if(hoveredPin) {
+                        const originalNews = newsData.find(n => n.id === hoveredPin.userData.newsId);
+                        hoveredPin.material.color.setHex(originalNews.read ? 0x555555 : hoveredPin.userData.baseColor);
+                    }
+
+                    hoveredPin = targetPin;
+                    // 호버 시 어두운 밤 화면 등에서도 또렷이 보이도록 깨끗한 흰색 빛 상태로 치환 적용
+                    hoveredPin.material.color.setHex(0xffffff); 
+                    hoveredPin.scale.set(1.8, 1.8, 1.8); // 스케일 커지며 강조
+                }
+
+                // 카드뉴스 바인딩 및 노출
+                const news = newsData.find(n => n.id === hoveredPin.userData.newsId);
+                document.getElementById('card-tag').innerText = news.type.toUpperCase();
+                document.getElementById('card-tag').style.backgroundColor = '#' + news.color.toString(16);
+                document.getElementById('card-title').innerText = news.title;
+                document.getElementById('card-img').src = `https://picsum.photos/id/${news.id + 10}/80/60`; // 가상 기사 이미지 매칭
+
+                card.style.display = 'block';
+                card.style.left = (event.clientX + 15) + 'px';
+                card.style.top = (event.clientY + 15) + 'px';
+                document.body.style.cursor = 'pointer';
+
+            } else {
+                if (hoveredPin) {
+                    const news = newsData.find(n => n.id === hoveredPin.userData.newsId);
+                    // 읽은 기사인 경우 흐려짐(Dimmed) 흑회색 유지처리, 미독 상태면 고유 색상 원복
+                    hoveredPin.material.color.setHex(news.read ? 0x555555 : hoveredPin.userData.baseColor);
+                    hoveredPin.scale.set(1, 1, 1);
+                    hoveredPin = null;
+                }
+                card.style.display = 'none';
+                document.body.style.cursor = 'default';
+            }
+        }
+
+        // 핀을 누르면 상세 창 활성화 및 읽음 흐려짐 처리 작동
+        function onPointClick() {
+            if (hoveredPin) {
+                const news = newsData.find(n => n.id === hoveredPin.userData.newsId);
+                openModal(news);
+                
+                // 읽음 상태 처리 완료 -> 흐린 컬러화 가이드 연동
+                news.read = true; 
+                hoveredPin.material.color.setHex(0x555555); 
+            }
+        }
+
+        function openModal(news) {
+            document.getElementById('modal-main-title').innerText = `한겨레 1시간 주기 실시간 분류 시스템 [${news.type.toUpperCase()}]`;
+            document.getElementById('modal-article-title').innerText = news.title;
+            document.getElementById('modal-article-body').innerText = news.body;
+            document.getElementById('modal-wiki-content').innerHTML = news.wiki;
+
+            // 우측 연관 리스트 빌드업
+            const relListContainer = document.getElementById('modal-related-list');
+            relListContainer.innerHTML = '';
+            news.related.forEach(text => {
+                const item = document.createElement('div');
+                item.className = 'rel-card';
+                item.innerText = `[연관 텍스트 흐름 인덱스] ${text}`;
+                relListContainer.appendChild(item);
+            });
+
+            document.getElementById('detail-modal').style.display = 'block';
+        }
+
+        function closeModal() {
+            document.getElementById('detail-modal').style.display = 'none';
+        }
+
+        // 공신력 있는 기관 클릭 팝업 스왑 확장성 시뮬레이션용 함수
+        function loadWiki(keyword) {
+            alert(`[나무위키 전면 대체 공공 데이터 연동] \n국가 지식 보존 데이터 베이스 인덱스에서 '${keyword}' 국책 보고서 전문을 실시간으로 호출해 우측 창에 로드합니다.`);
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        // 시작
+        window.onload = init3D;
+    </script>
+</body>
+</html>
